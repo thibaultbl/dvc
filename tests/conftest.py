@@ -175,6 +175,19 @@ def mocked_webbrowser_open(mocker):
     mocker.patch("webbrowser.open")
 
 
+@pytest.fixture
+def broken_rev(tmp_dir, scm, dvc):
+    tmp_dir.gen("params.yaml", "foo: 1")
+    dvc.run(cmd="echo ${foo}", name="foo")
+    scm.add(["dvc.yaml", "dvc.lock"])
+    scm.commit("init broken")
+    _broken_rev = scm.get_rev()
+
+    scm.add(["params.yaml"])
+    scm.commit("fixed")
+    return _broken_rev
+
+
 @pytest.fixture(scope="session", autouse=True)
 def isolate(tmp_path_factory):
     path = tmp_path_factory.mktemp("mock")

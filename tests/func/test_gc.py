@@ -29,6 +29,7 @@ def good_and_bad_cache(tmp_dir, dvc):
         bad_cache.add(i)
 
     good_cache = {md5 for md5 in odb.all() if md5 not in bad_cache}
+
     return good_cache, bad_cache
 
 
@@ -423,3 +424,37 @@ def test_gc_cloud_remote_field(tmp_dir, scm, dvc, mocker, make_remote):
     mocked_remove = mocker.spy(LocalFileSystem, "remove")
     dvc.gc(workspace=True, cloud=True)
     assert len(mocked_remove.mock_calls) == 2  # local and other_remote
+
+
+@pytest.fixture
+def broken_rev(tmp_dir, scm, dvc, run_copy):
+    tmp_dir.dvc_gen("foo", "foo")
+    run_copy("foo", "bar", name="copy")
+
+    scm.add(["dvc.yaml", "dvc.lock"])
+    scm.commit("init working")
+    scm.tag("v1.0")
+
+    os.system(f"sed s/stages/bar/g -i {tmp_dir}/dvc.yaml")
+
+    scm.add(["dvc.yaml", "dvc.lock"])
+    scm.commit("introduce wrong yaml")
+    scm.tag("2.0")
+    _broken_rev = scm.get_rev()
+
+    os.system(f"sed s/bar/stages/g -i {tmp_dir}/dvc.yaml")
+    scm.add(["dvc.yaml", "dvc.lock"])
+    scm.commit("Fixed")
+    scm.tag("v3.0")
+
+    return _broken_rev, tmp_dir, dvc
+
+
+def test_gc_broken_rev(tmp_dir, scm, dvc, broken_rev):
+    broken_rev, temp_dir, dvc = broken_rev
+    n = _count_files(dvc.cache.local.path)
+
+    dvc.gc(all_tags=True, all_branches=False)
+
+    # Only one uncommitted file should go away
+    assert _count_files(dvc.cache.local.path) == n - 1
